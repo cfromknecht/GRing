@@ -5,11 +5,10 @@
 #include <ctime>
 #include <iostream>
 
-const size_t NUM_TESTS = 1000;
-const size_t DIM = 256;
-const size_t K = 14;
-const size_t L = 10;
-const size_t S = 4;
+const size_t DIM = 256;         // main security parameter
+const size_t K = 14;            // lg( Q )
+const size_t L = 10;            // Length of ABE id
+const size_t S = 4;             // Gaussian parameter
 
 int main( void ) {
   srand( time( NULL ) );
@@ -57,10 +56,9 @@ int main( void ) {
 
   for ( size_t i = 1; i < K; ++i )
     fmpz_mod_poly_add( Abar.data()[0], Abar.data()[0], Abar.data()[i] );
-
   fmpz_mod_poly_sub( y, y, Abar.data()[0] );
 
-  std::cout << "y: " << std::endl;
+  std::cout << "msg': " << std::endl;
   fmpz_mod_poly_print( y );
   std::cout << std::endl;
 
