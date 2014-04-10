@@ -39,41 +39,48 @@ namespace gring {
     // Initializers
     void uniformInit( const size_t start, const size_t end );
     void ternaryInit( const size_t start, const size_t end );
+    void identityInit( const size_t start, const size_t end );
     // Arithmetic Operations
     GRingArray operator*( const ring_t& s ) const;
     void operator*=( const ring_t& s );
     GRingArray operator*( const GRingArray& other ) const;
     void operator*=( const GRingArray& other );
+    GRingArray operator+( const ring_t& s ) const;
+    void operator+=( const ring_t& s );
     GRingArray operator+( const GRingArray& other ) const;
     void operator+=( const GRingArray& other );
-    GRingArray operator-( const ring_t& other ) const;
-    void operator-=( const ring_t& other );
-    void plusGRingSection( const size_t start, const size_t end, const 
-        GRingArray& other );
-    void minusGRingSection( const size_t start, const size_t end, const 
-        GRingArray& other );
-    void mulmodGRingSection( const size_t start, const size_t end, const 
-        GRingArray& other, GRingArray& target );
+    void plusGRingSection( const size_t start, const size_t end, const ring_t&
+        otherPoly, ring_t* targetPolys, const size_t targetStart );
+    void plusGRingSection( const size_t start, const size_t end, ring_t* 
+        otherPolys, const size_t otherStart, ring_t* targetPolys, const size_t 
+        targetStart );
+    void mulmodGRingSection( const size_t start, const size_t end, const ring_t& 
+        otherPoly, ring_t* targetPolys, const size_t 
+        targetStart );
+    void mulmodGRingSection( const size_t start, const size_t end, ring_t* 
+        otherPolys, const size_t otherStart, ring_t* targetPolys, const size_t 
+        targetStart );
     // Cryptographic Operations
     void dualRegevEncode();
     void dualRegevEncode( ring_t& s );
-    void dualRegevEncrypt( const unsigned char* const data );
-    void dualRegevEncrypt( ring_t& s, const unsigned char* const data );
+    ring_t* dualRegevEncrypt( std::string& data );
+    void dualRegevEncrypt( ring_t* s, std::string& data );
     void ternaryPerturb( ring_t& r );
     // Factory Methods
     void makeUniformPoly( ring_t& u );
-    void makeParityCheckForSecret( GRingArray& AR, const size_t start, 
-        const size_t end, const GRingArray& secret );
+    void makeParityCheckForSecret( const size_t start, GRingArray& secret );
     void sampleD( const size_t s, const ring_t& u, const size_t start, const 
         size_t end, const ring_t p1, const ring_t p2, const GRingArray& Ta, 
         const GRingArray& sigma );
     void invert( ring_t s, ring_t* e, const ring_t* b );
+    void invertId( ring_t y, const char* id, const size_t start );
+    void invertY( ring_t y, const size_t start );
   };
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
   GRingArray<N,Q,K,LEN>::GRingArray() : _polys{new ring_t[K*LEN]}, _FF{makeF()} {
-    assert( (1 << K) >= Q );
-    assert( Q > (1 << (K-1)) );
+    assert( (K % 2) == 0 );
+    assert( (1 << K) == Q );
 
     fmpz_t q_z;
     fmpz_init_set_ui( q_z, Q );
@@ -130,6 +137,16 @@ namespace gring {
   }
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
+  void
+  GRingArray<N,Q,K,LEN>::identityInit( const size_t start, const size_t end ) {
+#pragma omp parallel for
+    for ( size_t i = K*start; i < K*end; ++i ) {
+      fmpz_mod_poly_set_coeff_ui( _polys[i], 0, 1 );
+    }
+    return;
+  }
+
+  template< size_t N, size_t Q, size_t K, size_t LEN >
   GRingArray<N,Q,K,LEN>& 
   GRingArray<N,Q,K,LEN>::operator=( const GRingArray& other ) {
     ring_t* otherPolys = other.data();
@@ -151,10 +168,7 @@ namespace gring {
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void 
   GRingArray<N,Q,K,LEN>::operator*=( const ring_t& s ) {
-    ring_t& F = FF();
-#pragma omp parallel for
-    for ( size_t i = 0; i < K*LEN; ++i )
-      fmpz_mod_poly_mulmod( _polys[i], _polys[i], s, F );
+    mulmodGRingSection( 0, LEN, s, _polys, 0 );
   }
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
@@ -168,7 +182,21 @@ namespace gring {
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void 
   GRingArray<N,Q,K,LEN>::operator*=( const GRingArray& other ) {
-    mulmodGRingSection( 0, LEN, other, *this);
+    mulmodGRingSection( 0, LEN, other.data(), 0, _polys, 0 );
+  }
+
+  template< size_t N, size_t Q, size_t K, size_t LEN >
+  GRingArray<N,Q,K,LEN>
+  GRingArray<N,Q,K,LEN>::operator+( const ring_t& s ) const {
+    GRingArray rv{*this};
+    rv += s;
+    return rv;
+  }
+
+  template< size_t N, size_t Q, size_t K, size_t LEN >
+  void 
+  GRingArray<N,Q,K,LEN>::operator+=( const ring_t& s ) {
+    plusGRingSection( 0, LEN, s, _polys, 0);
   }
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
@@ -182,53 +210,53 @@ namespace gring {
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void 
   GRingArray<N,Q,K,LEN>::operator+=( const GRingArray& other ) {
-    plusGRingSection( 0, LEN, other );
-  }
-
-  template< size_t N, size_t Q, size_t K, size_t LEN >
-  GRingArray<N,Q,K,LEN>
-  GRingArray<N,Q,K,LEN>::operator-( const ring_t& other ) const {
-    GRingArray rv{*this};
-    rv -= other;
-    return rv;
-  }
-
-  template< size_t N, size_t Q, size_t K, size_t LEN >
-  void 
-  GRingArray<N,Q,K,LEN>::operator-=( const ring_t& other ) {
-    minusGRingSection( 0, LEN, other );
+    plusGRingSection( 0, LEN, other.data(), 0, _polys, 0);
   }
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void
   GRingArray<N,Q,K,LEN>::plusGRingSection( const size_t start, const size_t end, 
-      const GRingArray& other ) {
-    if ( end > other.len() ) throw std::runtime_error{ "end > other.len()" };
-    ring_t* otherPolys = other.data();
-    for ( size_t i = K*start; i <= K*end; i++ )
-      fmpz_mod_poly_add( _polys[i], _polys[i], otherPolys[i] );
-  }
-
-  template< size_t N, size_t Q, size_t K, size_t LEN >
-  void
-  GRingArray<N,Q,K,LEN>::minusGRingSection( const size_t start, const size_t end, 
-      const GRingArray& other ) {
-    if ( end > other.len() ) throw std::runtime_error{ "end > other.len()" };
-    ring_t* otherPolys = other.data();
-    for ( size_t i = K*start; i <= K*end; i++ )
-      fmpz_mod_poly_sub( _polys[i], _polys[i], otherPolys[i] );
-  }
-
-  template< size_t N, size_t Q, size_t K, size_t LEN >
-  void
-  GRingArray<N,Q,K,LEN>::mulmodGRingSection( size_t start, size_t end, const 
-      GRingArray& other, GRingArray& target) {
-    if ( end > other.len() ) throw std::runtime_error{ "end > other.len()" };
-    ring_t& F = FF();
-    ring_t* otherPolys = other.data();
-    ring_t* targetPolys = target.data();
+      const ring_t& otherPoly, ring_t* targetPolys, const size_t targetStart ) {
+#pragma omp parallel for
     for ( size_t i = K*start; i < K*end; i++ )
-      fmpz_mod_poly_mulmod( targetPolys[i], _polys[i], otherPolys[i], F );
+      fmpz_mod_poly_add( targetPolys[K*(targetStart - start) + i], _polys[i], 
+          otherPoly );
+  }
+
+  template< size_t N, size_t Q, size_t K, size_t LEN >
+  void
+  GRingArray<N,Q,K,LEN>::plusGRingSection( const size_t start, const size_t end, 
+      ring_t* otherPolys, const size_t otherStart, ring_t* targetPolys, const size_t 
+      targetStart ) {
+#pragma omp parallel for
+    for ( size_t i = K*start; i < K*end; i++ )
+      fmpz_mod_poly_add( targetPolys[K*(targetStart-start) + i], _polys[i], 
+          otherPolys[K*(otherStart-start) + i] );
+  }
+
+  template< size_t N, size_t Q, size_t K, size_t LEN >
+  void
+  GRingArray<N,Q,K,LEN>::mulmodGRingSection( const size_t start, const size_t 
+      end, const ring_t& otherPoly, ring_t* targetPolys, const size_t targetStart ) {
+    ring_t& F = FF();
+#pragma omp parallel for
+    for ( size_t i = K*start; i < K*end; ++i ) {
+      fmpz_mod_poly_mulmod( targetPolys[K*(targetStart - start) + i], _polys[i], 
+          otherPoly, F );
+    }
+  }
+
+  template< size_t N, size_t Q, size_t K, size_t LEN >
+  void
+  GRingArray<N,Q,K,LEN>::mulmodGRingSection( const size_t start, const size_t 
+      end, ring_t* otherPolys, const size_t otherStart, ring_t* targetPolys, 
+      const size_t targetStart ) {
+    ring_t& F = FF();
+#pragma omp parallel for
+    for ( size_t i = K*start; i < K*end; ++i ) {
+      fmpz_mod_poly_mulmod( targetPolys[K*(targetStart - start) + i], _polys[i], 
+          otherPolys[K*(otherStart - start) + i], F );
+    }
   }
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
@@ -250,17 +278,14 @@ namespace gring {
       ternaryPerturb( _polys[i] );
     }
   }
-
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void
-  GRingArray<N,Q,K,LEN>::dualRegevEncrypt( const unsigned char* const mu ) {
+  GRingArray<N,Q,K,LEN>::dualRegevEncrypt( ring_t* s, std::string& mu ) {
     size_t blocksize = N/8;
     ring_t& F = FF();
-    ring_t s;
-    makeUniformPoly( s );
 #pragma omp parallel for
     for ( size_t i = 0; i < K*LEN; ++i ) {
-      fmpz_mod_poly_mulmod( _polys[i], _polys[i], s, F );
+      fmpz_mod_poly_mulmod( _polys[i], _polys[i], *s, F );
       fmpz_t coeff, cj;
       fmpz_init( coeff ); fmpz_init( cj );
       size_t byte, bit;
@@ -273,11 +298,20 @@ namespace gring {
           fmpz_add( cj, cj, coeff );
           fmpz_set_ui( cj, (rand()&1) + (rand()&1)*(Q-1) );
           fmpz_add( cj, cj, coeff );
-          fmpz_mod_poly_set_coeff_fmpz( _polys[i], coeff, j );
+          fmpz_mod_poly_set_coeff_fmpz( _polys[i], j, coeff );
           byte >>= 1;
         }
       }
     }
+  }
+
+  template< size_t N, size_t Q, size_t K, size_t LEN >
+  ring_t*
+  GRingArray<N,Q,K,LEN>::dualRegevEncrypt( std::string& mu ) {
+    ring_t* s = new ring_t[1];
+    makeUniformPoly( *s );
+    dualRegevEncrypt( s, mu );
+    return s;
   }
 
   /* Instead of creating a random ternary error polynomial and adding, we can 
@@ -314,25 +348,28 @@ namespace gring {
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void
-  GRingArray<N,Q,K,LEN>::makeParityCheckForSecret( GRingArray& AR, const size_t 
-      start, const size_t end, const GRingArray& secret ) {
-    if ( end > secret.len() ) throw std::runtime_error{ "end > secret.len()" };
-    if ( end > AR.len() ) throw std::runtime_error{ "end > AR.len()" };
+  GRingArray<N,Q,K,LEN>::makeParityCheckForSecret( const size_t start, 
+      GRingArray& secret ) {
+    if ( start + 2 > len() ) throw std::runtime_error{ "start + 2 > len()" };
+    if ( start + 2 > secret.len() ) throw std::runtime_error{ "start + 2 > secret.len()" };
 
-    uniformInit( start, end );
-    mulmodGRingSection( start, end, secret, AR);
+    secret.ternaryInit( start, start + 1 );
+    secret.identityInit( start + 1, start + 2 );
+
+    uniformInit( start, start + 1 );
+    mulmodGRingSection( start, start + 1, secret.data(), start, _polys, start + 1 );
 
     fmpz_t q_z;
     fmpz_init_set_ui( q_z, Q );
 
     ring_t coeffPoly;
-    fmpz_mod_poly_init( coeffPoly, q_z );
-    ring_t* ARPolys = AR.data();
-    for ( size_t i = start; i < end; ++i ) {
-      for ( size_t j = 0; j < K; ++j ) {
-        fmpz_mod_poly_set_coeff_ui( coeffPoly, 0, 1 << j );
-        fmpz_mod_poly_sub( ARPolys[K*i+j], coeffPoly, ARPolys[K*i+j] );
-      }
+    fmpz_mod_poly_init2( coeffPoly, q_z, 1 );
+    
+    ring_t* ARPolys = this->data();
+    size_t index = 0;
+    for ( size_t j = K*(start + 1); j < K*(start + 2); ++j ) {
+      fmpz_mod_poly_set_coeff_ui( coeffPoly, 0, 1 << index++ );
+      fmpz_mod_poly_sub( ARPolys[j], coeffPoly, ARPolys[j] );
     }
 
     fmpz_mod_poly_clear( coeffPoly );
@@ -384,18 +421,17 @@ namespace gring {
 
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void
-  invertY( GRingArray<N,Q,K,LEN>& rPrime, const ring_t y ) {
+  GRingArray<N,Q,K,LEN>::invertY( ring_t y, const size_t start ) {
+    assert( (start + 1)*K <= K*LEN );
     size_t yj;
     fmpz_t y_z;
     fmpz_init( y_z );
 
-    ring_t* rPrimePolys = rPrime.data();
-
     for ( size_t j = 0; j < N; ++j ) {
       fmpz_mod_poly_get_coeff_fmpz( y_z, y, j );
       yj = fmpz_get_ui( y_z );
-      for ( size_t i = 0; i < K; ++i ) {
-        fmpz_mod_poly_set_coeff_ui( rPrimePolys[i], j, yj & 1 );
+      for ( size_t i = start*K; i < (start + 1)*K; ++i ) {
+        fmpz_mod_poly_set_coeff_ui( _polys[i], j, yj & 1 );
         yj >>= 1;
       }
     }
@@ -483,11 +519,40 @@ namespace gring {
                                                                                       
   template< size_t N, size_t Q, size_t K, size_t LEN >
   void                                                                                
-  invertId( ring_t y, GRingArray<N,Q,K,LEN>& rPrime, const char* id ) {                                        
+  GRingArray<N,Q,K,LEN>::invertId( ring_t y, const char* id, const size_t start ) {                                        
     idToY<N,Q,K,LEN>( y, id );                                                      
-    invertY<N,Q,K,LEN>( rPrime, y );                                                
+    invertY( y, start );                                                
   }    
      
+  float 
+  erfinv( float x ) {
+    float w, p;
+    w = - log((1.0f-x)*(1.0f+x));
+    if ( w < 5.000000f ) {
+      w = w - 2.500000f;
+      p = 2.81022636e-08f;
+      p = 3.43273939e-07f + p*w;
+      p = -3.5233877e-06f + p*w;
+      p = -4.39150654e-06f + p*w;
+      p = 0.00021858087f + p*w;
+      p = -0.00125372503f + p*w;
+      p = -0.00417768164f + p*w;
+      p = 0.246640727f + p*w;
+      p = 1.50140941f + p*w;
+    } else {
+      w = sqrtf(w) - 3.000000f;
+      p = -0.000200214257f;
+      p = 0.000100950558f + p*w;
+      p = 0.00134934322f + p*w;
+      p = -0.00367342844f + p*w;
+      p = 0.00573950773f + p*w;
+      p = -0.0076224613f + p*w;
+      p = 0.00943887047f + p*w;
+      p = 1.00167406f + p*w;
+      p = 2.83297682f + p*w;
+    }
+    return p*x;
+  }
 
 } // namespace gring
 
