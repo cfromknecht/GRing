@@ -1,4 +1,4 @@
-#include <ring/GRingArray.hpp>
+#include <ring/ibe.hpp>
 
 #include <cstdlib>
 #include <sys/time.h>
@@ -28,12 +28,14 @@ printTimes( std::string action, const struct timeval t1, const struct
   std::cout << action << "s/sec: " << 1000000.0/millis << std::endl;
 }
 
-template< size_t N, size_t Q, size_t K, size_t LEN >
+template< size_t N, size_t Q, size_t K >
 void 
-printPolyAtIndex( std::string name, gring::GRingArray<N,Q,K,LEN>& array, size_t 
+printPolyAtIndex( std::string name, gring::GRingArray<N,Q,K>* array, size_t 
     index ) {
+  assert( index < K*array->len() );
+
   std::cout << name << "[" << index << "]: " << std::endl;
-  fmpz_mod_poly_print( array.data()[index] );
+  fmpz_mod_poly_print( array->data()[index] );
   std::cout << std::endl;
 }
 
@@ -41,81 +43,53 @@ int main( void ) {
   srand( time( NULL ) );
 
   const size_t Q = 1 << K;
-  const char* ID = "conner";
+  std::string idString = "conner";
 
   struct timeval t1, t2;
 
   std::cout << "IBE" << std::endl;
 
-  // Initialize Polynomial Ring Array (arrays of R^k_q_f(x) where f(x) = x^k + 1 
-  // and k is a multiple of 2)
-  gring::GRingArray<DIM,Q,K,2> A{}, Ta{}, skID{};
-
-  // Make PK and SK
+  // Make MSK and PK
   gettimeofday( &t1, 0 );
-
-  A.makeParityCheckForSecret( 0, Ta);
-
+  gring::IBEMasterSecret<DIM,Q,K>* MSK = new gring::IBEMasterSecret<DIM,Q,K>{};
   gettimeofday( &t2, 0 );
   printTimes( "setup", t1, t2 );
-  
-  // Make Public Key for ID
+
+  gring::IBEPublic<DIM,Q,K>* PK = MSK->publicKey();
+
+  // Encrypt to ID
   gettimeofday( &t1, 0 );
-
-  fmpz_t q_z;
-  fmpz_init_set_ui( q_z, Q );
-
-  gring::ring_t y;
-  fmpz_mod_poly_init2( y, q_z, DIM );
-  skID.invertId( y, ID, 1 );
-  Ta.mulmodGRingSection( 0, 1, skID.data(), 1, skID.data(), 0 );
-//  skID *= Ta;
-
-  gettimeofday( &t2, 0 );
-  printTimes( "inversion", t1, t2 );
-
-  // Encrypt
-  gettimeofday( &t1, 0 );
-
-  gring::ring_t s;
-  fmpz_mod_poly_init2( s, q_z, DIM );
-
-  A.makeUniformPoly( s );
-  A.dualRegevEncode( s );
-  fmpz_mod_poly_mulmod( y, y, s, A.FF() );
-  A.ternaryPerturb( y );
-  
-  fmpz_mod_poly_clear( s );
-
+  gring::IBECiphertext<DIM,Q,K>* ctxt = PK->encrypt( idString, "something much "
+      "longer than 32 bytes so that maybe it gets cut off?" );
   gettimeofday( &t2, 0 );
   printTimes( "encryption", t1, t2 );
 
+  // Invert Secret Key
+  gettimeofday( &t1, 0 );
+  gring::IBESecret<DIM,Q,K>* userSecret = MSK->secretKeyForID( idString );
+  gettimeofday( &t2, 0 );
+  printTimes( "inversion", t1, t2 );
+
   // Decrypt
   gettimeofday( &t1, 0 );
-
-  A *= skID;
-  for ( size_t i = 1; i < 2*K; ++i )
-    fmpz_mod_poly_add( A.data()[0], A.data()[0], A.data()[i] );
-  fmpz_mod_poly_sub( y, y, A.data()[0] );
-
+  std::string messagePrime = userSecret->decrypt( ctxt );
   gettimeofday( &t2, 0 );
   printTimes( "decryption", t1, t2 );
 
-  std::cout << "msg': " << std::endl;
-  fmpz_mod_poly_print( y );
-  std::cout << std::endl;
+  std::cout << "messagePrime: " << messagePrime << std::endl;
 
+  /*
 
   std::cout << "ABE" << std::endl;
 
-  gring::GRingArray<DIM,Q,K,L+2> abeA{}, abeTa{};
-  gring::GRingArray<DIM,Q,K,L+1> H{}, e{};
-  gring::GRingArray<DIM,Q,K,1> Bf{}, Sf{}, cg{}, D{};
+  gring::GRingArray<DIM,Q,K> abeA{L+2}, abeTa{L+2};
+  gring::GRingArray<DIM,Q,K> H{L+1}, e{L+1};
+  gring::GRingArray<DIM,Q,K> Bf{1}, Sf{1}, cg{1}, D{1};
 
   // Make PK and SK
   gettimeofday( &t1, 0 );
 
-  abeA.makeParityCheckForSecret( 0, abeTa);
+  trapGen( abeA, abeTa, 0 );
   abeA.uniformInit( 1, L + 2 );
   for ( size_t i = K; i < K*(L+2); ++i )
     fmpz_mod_poly_set( abeTa.data()[i], abeA.data()[i] );
@@ -150,7 +124,7 @@ int main( void ) {
   e.ternaryPerturb( e0 );
   e.ternaryPerturb( e1 );
 
-  e.identityInit( 0, 1 );
+  e.identityInit( 0 );
   e.ternaryInit( 1, L+1 );
 
   std::cout << "encoding ..." << std::endl;
@@ -164,9 +138,9 @@ int main( void ) {
 
   std::cout << "eval pk, eval sim, eval ct ..." << std::endl;
   for ( size_t i = 1; i < L+1; ++i ) {
-    Bf.plusGRingSection(0, 1, abeA.data(), i, Bf.data(), 0 );
-    Sf.plusGRingSection(0, 1, e.data(), i, Sf.data(), 0 );
-    cg.plusGRingSection(0, 1, H.data(), i, cg.data(), 0 );
+    Bf.plusGRingSection(0, 1, abeA, i, Bf, 0 );
+    Sf.plusGRingSection(0, 1, e, i, Sf, 0 );
+    cg.plusGRingSection(0, 1, H, i, cg, 0 );
   }
 
   std::cout << "Gaussian sample:" << std::endl;
@@ -175,6 +149,8 @@ int main( void ) {
   std::cout << std::endl;
 
   fmpz_clear( q_z );
+
+  */
 
   return 0;
 }

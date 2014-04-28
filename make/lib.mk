@@ -6,6 +6,7 @@ BUILD_DIR_PROJ := $(BUILD_DIR)/$(PROJ_NAME)
 
 OBJECTS_PROJ := \
 	$(BUILD_DIR_PROJ)/GRingArray.o \
+	$(BUILD_DIR_PROJ)/ibe.o \
 
 $(OBJECTS_PROJ) : | $(INSTALL_DIR)/include/$(PROJ_NAME) \
 		$(INSTALL_DIR)/bin/resources/$(PROJ_NAME) \
