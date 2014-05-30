@@ -1,6 +1,6 @@
 GRing
 =====
-GRing is a lightweight, efficient implementation of G-Trapdoors on polynomials under the Ring-LWE assumption.  It includes operations for arithmetic, memory management, and trapdoor operations.  The current demo shows how one can use GRing to accomplish a simple IBE scheme.
+GRing is a lightweight, efficient implementation of G-Trapdoors under the Ring-LWE assumption.  It includes operations for arithmetic, memory management, and trapdoor operations.  The library provides implementations for both Identity-Based Encryption and Attribute-Based Encryption that leverage these cryptographic primitives.
   
 Setup
 -----
@@ -15,16 +15,17 @@ The main file is located at src/demo/main.cpp. To execute:
 make  
 ./install/bin/ring-demo.x
 ```
-The current output should a blank message, so every entry in the printed polynomial should be small.
+The current demo includes examples for both ABE and IBE schemes.
 
 Parameters
 ----------
-Values for N, Q, K, etc. can be found at the top of the main.cpp file.  Note for simplicity, we use K to derive Q to ensure that Q is a power of 2.
-
-Notes
------
-The encoder from hashes to polynomials can only support ```K <= 16```.  Behavior is undefined for ```K > 16```.  
-Future improvements to the API will help to increase readibility.
+* **N:** default security parameter
+* **Q:** integer modulus, must be an even power of 2
+* **K:** log_2( Q ) s.t. Q = 2^K
+* **SS:** Guassian smoothing parameter, in practice this value need not be above 4
+* **L:** length of ABE IDs
+  
+Values for N, K, SS, and L can be found at the top of the main.cpp file.  Note that we use K to derive Q to ensure that Q is a power of 2, which helps to simplify the G-Trapdoor algorithms.
 
 
 Generating Guassian Samples
