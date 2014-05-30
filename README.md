@@ -57,8 +57,8 @@ auto gAdd = new gring::ABEAddGate<N,Q,K>{addWeights};
 std::vector< size_t > mulWeight{1};
 auto gMul = new gring::ABEMulGate<N,Q,K>{mulWeight};
   
-gAdd->print()       // ABEAddGate: 1 0 4 5 2
-gMul->print()       // ABEMulGate: 1
+gAdd->print();       // ABEAddGate: 1 0 4 5 2
+gMul->print();       // ABEMulGate: 1
 ```
 The weight vector for an ABEAddGate may be of arbitrary length but is checked at runtime to ensure that it matches the length of the incoming ID or GRingArray.  ABEMulGate requires the weight vector to be of length one but can handle any number of inputs.
 
@@ -70,7 +70,7 @@ where ```g``` is either an ABEAddGate or ABEMulGate.
 
 * **Creating IDs**
 ``` cpp
-std::vector< size_t > idWeights{1, 0, Q-1, 5, 3}
+std::vector< size_t > idWeights{1, 0, Q-1, 5, 3};
 auto id = gring::ABEId{ idWeights };
 ```
 * **Encrypting Messages**
@@ -97,7 +97,7 @@ auto msk = new gring::ABEMasterSecret<N,Q,K>{L, samples};
 auto pk = msk->publicKey();
   
 // creating IDs
-std::vector< size_t > idWeights{1, 0, Q-1, 5, 3}
+std::vector< size_t > idWeights{1, 0, Q-1, 5, 3};
 auto id = gring::ABEId{ idWeights };
   
 // encrypting
