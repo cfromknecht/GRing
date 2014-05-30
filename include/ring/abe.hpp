@@ -589,9 +589,6 @@ namespace gring {
     std::vector< size_t > endInput;
     for ( size_t i = 0; i < endWire.size(); ++i ) {
       if ( endWire[i] < _L ) endInput.push_back( id.x()[endWire[i]] );
-      else {
-        
-      }
     }
     auto inputId = ABEId{endInput};
     return endGate->evalId( inputId );
