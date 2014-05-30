@@ -20,13 +20,15 @@ namespace gring {
   template< size_t N, size_t Q, size_t K >
   class GRingArray {
   private:
-    ring_t* const _polys;
+    ring_t* _polys;
     ring_t& _FF;
     size_t _len;
     ring_t& makeF() const; 
     GRingArray() = delete;
   public:
     GRingArray( size_t len );
+    GRingArray( const ring_t* polys, size_t length ) : _polys{polys}, 
+      _FF{makeF()}, _len{length} {}
     GRingArray( const GRingArray& other );
     GRingArray& operator=( const GRingArray& other );
     ~GRingArray();
@@ -44,7 +46,12 @@ namespace gring {
     inline void ternaryInit() { ternaryInit( 0, _len ); }
     void ternaryInit( const size_t start, const size_t end );
     void identityInit( const size_t index );
+    void identityInit( const size_t start, const size_t end );
     // Arithmetic Operations
+    GRingArray operator-( const ring_t& s ) const;
+    GRingArray operator-( const GRingArray& other ) const;
+    void operator-=( const ring_t& s );
+    void operator-=( const GRingArray& other );
     GRingArray operator+( const ring_t& s ) const;
     GRingArray operator+( const GRingArray& other ) const;
     void operator+=( const ring_t& s );
@@ -53,16 +60,22 @@ namespace gring {
     GRingArray operator*( const GRingArray& other ) const;
     void operator*=( const ring_t& s );
     void operator*=( const GRingArray& other );
+    void negGRingSection ( const size_t start, const size_t end );
+    void minusGRingSection( const size_t start, const size_t end, const ring_t&
+        otherPoly, GRingArray& target, const size_t targetStart );
+    void minusGRingSection( const size_t start, const size_t end, const 
+        GRingArray& other, const size_t otherStart, GRingArray& target, const 
+        size_t targetStart );
     void plusGRingSection( const size_t start, const size_t end, const ring_t&
-        otherPoly, const GRingArray& target, const size_t targetStart );
+        otherPoly, GRingArray& target, const size_t targetStart );
     void plusGRingSection( const size_t start, const size_t end, const 
-        GRingArray& other, const size_t otherStart, const GRingArray& target, 
-        const size_t targetStart );
+        GRingArray& other, const size_t otherStart, GRingArray& target, const 
+        size_t targetStart );
     void mulmodGRingSection( const size_t start, const size_t end, const ring_t& 
-        otherPoly, const GRingArray& target, const size_t targetStart );
+        otherPoly, GRingArray& target, const size_t targetStart );
     void mulmodGRingSection( const size_t start, const size_t end, const 
-        GRingArray& other, const size_t otherStart, const GRingArray& target, 
-        const size_t targetStart );
+        GRingArray& other, const size_t otherStart, GRingArray& target, const 
+        size_t targetStart );
     // Cryptographic Operations
     void dualRegevEncode();
     void dualRegevEncode( ring_t& s );
@@ -71,16 +84,13 @@ namespace gring {
     void ternaryPerturb( ring_t& r );
     // Factory Methods
     void makeUniformPoly( ring_t& u );
-    void sampleD( const size_t s, const ring_t& u, const size_t start, const 
-        size_t end, const ring_t p1, const ring_t p2, const GRingArray& Ta, 
-        const GRingArray& sigma );
   };
 
   template< size_t N, size_t Q, size_t K >
   GRingArray<N,Q,K>::GRingArray( size_t length ) : _polys{new ring_t[K*length]}, 
       _FF{makeF()}, _len{length} {
     assert( (K % 2) == 0 );
-    assert( (1 << K) == Q );
+    assert( (size_t(1) << K) == Q );
 
     fmpz_t q_z;
     fmpz_init_set_ui( q_z, Q );
@@ -93,8 +103,8 @@ namespace gring {
   template< size_t N, size_t Q, size_t K >
   GRingArray<N,Q,K>::GRingArray( const GRingArray& other ) : 
       _polys{new ring_t[K*other.len()]}, _FF{makeF()}, _len{other.len()} {
-    assert( (1 << K) >= Q );
-    assert( Q > (1 << (K-1)) );
+    assert( (size_t(1) << K) >= Q );
+    assert( Q > (size_t(1) << (K-1)) );
 
     ring_t* otherPolys = other.data();
     fmpz_t q_z;
@@ -135,10 +145,14 @@ namespace gring {
     assert( end <= _len );
     assert( start < end );
 
+    size_t randbuff = 0;
 #pragma omp parallel for
     for ( size_t i = K*start; i < K*end; ++i )
-      for ( size_t j = 0; j < N; ++j )
-        fmpz_mod_poly_set_coeff_ui( _polys[i], j, (rand()&1) + (rand()&1)*(Q-1) );
+      for ( size_t j = 0; j < N; ++j ) {
+        if ( j % 32 == 0 ) randbuff = rand();
+        fmpz_mod_poly_set_coeff_ui( _polys[i], j, (randbuff&1) + ((randbuff>>1)&1)*(Q-1) );
+        randbuff >>= 2;
+      }
     return;
   }
 
@@ -152,17 +166,58 @@ namespace gring {
   }
 
   template< size_t N, size_t Q, size_t K >
+  void
+  GRingArray<N,Q,K>::identityInit( const size_t start, const size_t end ) {
+#pragma omp parallel for
+    for ( size_t i = start; i < end; ++i )
+      this->identityInit( i );
+  }
+
+  template< size_t N, size_t Q, size_t K >
   GRingArray<N,Q,K>& 
   GRingArray<N,Q,K>::operator=( const GRingArray& other ) {
     _polys = other.data();
     _len = other.len();
-    /*
-    ring_t* otherPolys = other.data();
-#pragma omp parallel for
-    for ( size_t i = 0; i < K*_len; ++i )
-      fmpz_mod_poly_set( _polys[i], otherPolys[i] );
-    */
     return *this;
+  }
+
+  template< size_t N, size_t Q, size_t K >
+  GRingArray<N,Q,K>
+  GRingArray<N,Q,K>::operator-( const ring_t& s ) const {
+    GRingArray rv{*this};
+    rv -= s;
+    return rv;
+  }
+
+  template< size_t N, size_t Q, size_t K >
+  GRingArray<N,Q,K>
+  GRingArray<N,Q,K>::operator-( const GRingArray& other ) const {
+    GRingArray rv{*this};
+    rv -= other;
+    return rv;
+  }
+
+  template< size_t N, size_t Q, size_t K >
+  void
+  GRingArray<N,Q,K>::negGRingSection( const size_t start, const size_t end ) {
+    assert( start < end );
+    assert( end <= _len );
+
+#pragma omp parallel for
+    for ( size_t i = K*start; i < K*end; ++i )
+      fmpz_mod_poly_neg( _polys[i], _polys[i] );
+  }
+
+  template< size_t N, size_t Q, size_t K >
+  void 
+  GRingArray<N,Q,K>::operator-=( const ring_t& s ) {
+    minusGRingSection( 0, _len, s, *this, 0);
+  }
+
+  template< size_t N, size_t Q, size_t K >
+  void 
+  GRingArray<N,Q,K>::operator-=( const GRingArray& other ) {
+    minusGRingSection( 0, _len, other, 0, *this, 0);
   }
 
   template< size_t N, size_t Q, size_t K >
@@ -223,23 +278,23 @@ namespace gring {
 
   template< size_t N, size_t Q, size_t K >
   void 
-  GRingArray<N,Q,K>::plusGRingSection( const size_t start, const size_t end, const ring_t& 
-      otherPoly, const GRingArray& target, const size_t targetStart ) {
+  GRingArray<N,Q,K>::minusGRingSection( const size_t start, const size_t end, const ring_t& 
+      otherPoly, GRingArray& target, const size_t targetStart ) {
     assert( end <= _len );
     assert( start < end );
     assert( targetStart + (end - start) <= target.len() );
 
     ring_t* targetPolys = target.data();
 #pragma omp parallel for
-    for ( size_t i = K*start; i < K*end; i++ )
-      fmpz_mod_poly_add( targetPolys[K*(targetStart - start) + i], _polys[i], 
+    for ( size_t i = 0; i < K*(end - start); ++i )
+      fmpz_mod_poly_sub( targetPolys[K*(targetStart - start) + i], _polys[i], 
           otherPoly );
   }
 
   template< size_t N, size_t Q, size_t K >
   void 
-  GRingArray<N,Q,K>::plusGRingSection( const size_t start, const size_t end, const GRingArray& 
-      other, const size_t otherStart, const GRingArray& target, const size_t 
+  GRingArray<N,Q,K>::minusGRingSection( const size_t start, const size_t end, const GRingArray& 
+      other, const size_t otherStart, GRingArray& target, const size_t 
       targetStart ) {
     assert( end <= _len );
     assert( start < end );
@@ -249,15 +304,48 @@ namespace gring {
     ring_t* otherPolys = other.data();
     ring_t* targetPolys = target.data();
 #pragma omp parallel for
-    for ( size_t i = K*start; i < K*end; i++ )
-      fmpz_mod_poly_add( targetPolys[K*(targetStart-start) + i], _polys[i], 
-          otherPolys[K*(otherStart-start) + i] );
+    for ( size_t i = 0; i < K*(end - start); ++i )
+      fmpz_mod_poly_sub( targetPolys[K*targetStart + i], _polys[K*start + i], 
+          otherPolys[K*otherStart + i] );
+  }
+
+  template< size_t N, size_t Q, size_t K >
+  void 
+  GRingArray<N,Q,K>::plusGRingSection( const size_t start, const size_t end, const ring_t& 
+      otherPoly, GRingArray& target, const size_t targetStart ) {
+    assert( end <= _len );
+    assert( start < end );
+    assert( targetStart + (end - start) <= target.len() );
+
+    ring_t* targetPolys = target.data();
+#pragma omp parallel for
+    for ( size_t i = 0; i < K*(end - start); ++i )
+      fmpz_mod_poly_add( targetPolys[K*targetStart + i], _polys[K*start + i], 
+          otherPoly );
+  }
+
+  template< size_t N, size_t Q, size_t K >
+  void 
+  GRingArray<N,Q,K>::plusGRingSection( const size_t start, const size_t end, const GRingArray& 
+      other, const size_t otherStart, GRingArray& target, const size_t 
+      targetStart ) {
+    assert( end <= _len );
+    assert( start < end );
+    assert( otherStart + (end - start) <= other.len() );
+    assert( targetStart + (end - start) <= target.len() );
+
+    ring_t* otherPolys = other.data();
+    ring_t* targetPolys = target.data();
+#pragma omp parallel for
+    for ( size_t i = 0; i < K*(end - start); ++i )
+      fmpz_mod_poly_add( targetPolys[K*targetStart + i], _polys[K*start + i], 
+          otherPolys[K*otherStart + i] );
   }
 
   template< size_t N, size_t Q, size_t K >
   void 
   GRingArray<N,Q,K>::mulmodGRingSection( const size_t start, const size_t end, const ring_t& 
-      otherPoly, const GRingArray& target, const size_t targetStart ) {
+      otherPoly, GRingArray& target, const size_t targetStart ) {
     assert( end <= _len );
     assert( start < end );
     assert( targetStart + (end - start) <= target.len() );
@@ -265,18 +353,17 @@ namespace gring {
     ring_t* targetPolys = target.data();
     ring_t& F = FF();
 #pragma omp parallel for
-    for ( size_t i = K*start; i < K*end; ++i ) {
-      fmpz_mod_poly_mulmod( targetPolys[K*(targetStart - start) + i], _polys[i], 
+    for ( size_t i = 0; i < K*(end - start); ++i )
+      fmpz_mod_poly_mulmod( targetPolys[K*targetStart + i], _polys[K*start + i], 
           otherPoly, F );
-    }
   }
 
 
   template< size_t N, size_t Q, size_t K >
   void 
   GRingArray<N,Q,K>::mulmodGRingSection( const size_t start, const size_t end, 
-      const GRingArray& other, const size_t otherStart, const GRingArray& 
-      target, const size_t targetStart ) {
+      const GRingArray& other, const size_t otherStart, GRingArray& target, 
+      const size_t targetStart ) {
     assert( end <= _len );
     assert( start < end );
     assert( otherStart + (end - start) <= other.len() );
@@ -286,10 +373,9 @@ namespace gring {
     ring_t* targetPolys = target.data();
     ring_t& F = FF();
 #pragma omp parallel for
-    for ( size_t i = K*start; i < K*end; ++i ) {
-      fmpz_mod_poly_mulmod( targetPolys[K*(targetStart - start) + i], _polys[i], 
-          otherPolys[K*(otherStart - start) + i], F );
-    }
+    for ( size_t i = 0; i < K*(end - start); ++i )
+      fmpz_mod_poly_mulmod( targetPolys[K*targetStart + i], _polys[K*start + i], 
+          otherPolys[K*otherStart + i], F );
   }
 
   template< size_t N, size_t Q, size_t K >
@@ -383,14 +469,6 @@ namespace gring {
     for ( size_t i = 0; i < N; ++i )
       fmpz_mod_poly_set_coeff_ui( r, i, rand() );
     fmpz_clear( q_z );
-  }
-
-  template< size_t N, size_t Q, size_t K >
-  void
-  GRingArray<N,Q,K>::sampleD( const size_t s, const ring_t& u, const size_t 
-      start, const size_t end, const ring_t p1, const ring_t p2, const 
-      GRingArray& Ta, const GRingArray& sigma ) {
-    //GRingArray wBar = (*this) * (p1 - (Ta * p2));
   }
 
   template< size_t N, size_t Q, size_t K >
