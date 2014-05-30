@@ -35,7 +35,7 @@ long* samples = gring::readOrBuildSamples<N,Q,K>( filename, smoothing_parameter 
 For efficient online applications, GRing uses a finite set from which it consumes independent Guassian samples.  This method will first attempt to load existing samples from ```filename```.  If the file does not exist, contains an insufficient number of samples, or uses a different ```smoothing_parameter```, GRing will build a new sample set and replace ```filename```.
 
 
-Attribute-Based Encryption
+ABE for Arithmetic Circuits
 --------------------------
 * **Creating a Master Secret Key**
 ``` cpp
