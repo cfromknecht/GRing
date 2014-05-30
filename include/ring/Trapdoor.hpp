@@ -71,7 +71,7 @@ namespace gring {
     return rand() / float(RAND_MAX);
   }
 
-  size_t
+  long
   sampleDiscreteZeroNormWithGaussParam( const long Q, const float param ) {
     const float c = 1.32;
     float denom = 2 * param * param;
@@ -94,7 +94,7 @@ namespace gring {
     long* samples = new long[2*num];
     size_t evenIndex = 0, oddIndex = num;
 
-    size_t t;
+    long t;
     while ( evenIndex < num || oddIndex < 2*num ) {
       t = sampleDiscreteZeroNormWithGaussParam( long(Q), param );
       if ( t & 1 ) { 
@@ -225,6 +225,16 @@ namespace gring {
     
     // draw fresh p with support for R 
     sampleZZWithSupport<N,Q,K>( &p, R, samples );
+
+    /*
+    std::cout << "p: " << std::endl;
+    for ( size_t i = 0; i < 2*K; ++i ) {
+      std::cout << "poly_" << i << std::endl;
+      fmpz_mod_poly_print( p.data()[i] );
+      std::cout << std::endl;
+    }
+    */
+
     // calculate Ap
     A->mulmodGRingSection( 0, rLen, p, 0, Ap, 0 );
     for ( size_t i = 1; i < rSize; ++i )
@@ -285,19 +295,29 @@ namespace gring {
     U->minusGRingSection( 0, 2, yBar, 0, yBar, 0 );
     // sample v from y - yBar
 //    std::cout << "sampleD ..." << std::endl;
+    /*
+    std::cout << "yBar: " << std::endl;
+    for ( size_t i = 0; i < 2*K; ++i ) {
+      std::cout << "poly_" << i << std::endl;
+      fmpz_mod_poly_print( yBar.data()[i] );
+      std::cout << std::endl;
+    }
+    */
     auto vTemp = sampleD( R, A, &yBar, samples );
 
     /*
     std::cout << "vTemp: " << std::endl;
-    fmpz_mod_poly_print( vTemp->data()[0] );
-    std::cout << std::endl;
+    for ( size_t i = 0; i < 2*K; ++i ) {
+      std::cout << "poly_" << i << std::endl;
+      fmpz_mod_poly_print( vTemp->data()[i] );
+      std::cout << std::endl;
+    }
     */
 
 //    std::cout << "copy ..." << std::endl;
     // copy into v
-    v->identityInit( 0, v->len() );
-    v->mulmodGRingSection( 0, v->len()/2, *vTemp, 0, *v, 0 );
-    v->mulmodGRingSection( v->len()/2, v->len(), vBar, 0, *v, v->len()/2 );
+    v->plusGRingSection( 0, v->len()/2, *vTemp, 0, *v, 0 );
+    v->plusGRingSection( v->len()/2, v->len(), vBar, 0, *v, v->len()/2 );
 
     return v;
   }

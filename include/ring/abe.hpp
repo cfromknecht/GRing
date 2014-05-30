@@ -18,7 +18,16 @@ namespace gring {
         _L{id.size()} { _x = id; }
     std::vector< size_t > x() const { return _x; }
     size_t L() const { return _L; }
+    void print() const;
   };
+
+  void
+  ABEId::print() const {
+    std::cout << "ABEId: ";
+    for ( size_t i = 0; i < this->x().size(); ++i )
+      std::cout << this->x()[i] << " ";
+    std::cout << " len: " << this->L() << std::endl;
+  }
 
   template< size_t N, size_t Q, size_t K >
   class ABECtxt {
@@ -308,14 +317,13 @@ namespace gring {
     GRingArray<N,Q,K>* ctxtRings() const { return _ctxtKeys; }
     GRingArray<N,Q,K>* D() const { return _d; }
     size_t L() const { return _L; }
-    ABECtxt<N,Q,K>* encrypt( ABEPublic<N,Q,K>* pub, ABEId& id, std::string msg, GRingArray<N,Q,K>* skF );
+    ABECtxt<N,Q,K>* encrypt( ABEId& id, std::string msg );
   };
 
   template< size_t N, size_t Q, size_t K >
   ABECtxt<N,Q,K>*
-  ABEPublic<N,Q,K>::encrypt( ABEPublic<N,Q,K>* pub, ABEId& id, 
-      std::string message, GRingArray<N,Q,K>* ) {
-    assert( pub->L() == id.x().size() );
+  ABEPublic<N,Q,K>::encrypt( ABEId& id, std::string message ) {
+    assert( this->L() == id.x().size() );
     fmpz_t q_z; fmpz_init_set_ui( q_z, Q );
     ring_t s;
     fmpz_mod_poly_init2( s, q_z, N );
@@ -325,18 +333,18 @@ namespace gring {
     auto e1 = GRingArray<N,Q,K>{2};
     e1.ternaryInit();
 
-    auto ctxt =  new ABECtxt<N,Q,K>{id, 2*(pub->L()+2)};
+    auto ctxt =  new ABECtxt<N,Q,K>{id, 2*(this->L()+2)};
     auto H = ctxt->rings();
-    H->plusGRingSection( 0, 2, *pub->pkRings(), 0, *H, 0 );
-    H->plusGRingSection( 2, 2*(pub->L()+1), *pub->ctxtRings(), 0, *H, 2 );
-    H->plusGRingSection( 2*(pub->L()+1), 2*(pub->L()+2), *pub->D(), 0, *H, 
-      2*(pub->L()+1) );
+    H->plusGRingSection( 0, 2, *this->pkRings(), 0, *H, 0 );
+    H->plusGRingSection( 2, 2*(this->L()+1), *this->ctxtRings(), 0, *H, 2 );
+    H->plusGRingSection( 2*(this->L()+1), 2*(this->L()+2), *this->D(), 0, *H, 
+      2*(this->L()+1) );
 
     fmpz_t coeff_z, xj_z;
     fmpz_init( coeff_z ); 
     fmpz_init( xj_z );
 
-    for ( size_t i = 0; i < pub->L(); ++i )  {
+    for ( size_t i = 0; i < this->L(); ++i )  {
       for ( size_t j = 0; j < 2*K; ++j ) {
         fmpz_set_ui( coeff_z, (id.x()[i] * (size_t(1) << j)) % Q );
         fmpz_mod_poly_get_coeff_fmpz( xj_z, H->data()[2*K*(i+1) + j], 0 );
@@ -409,7 +417,7 @@ namespace gring {
     */
 
 //    e0.plusGRingSection( 0, 2, *H, 0, *H, 0 );
-    e1.plusGRingSection( 0, 2, *H, 2*(pub->L()+1), *H, 2*(pub->L()+1) );
+    e1.plusGRingSection( 0, 2, *H, 2*(this->L()+1), *H, 2*(this->L()+1) );
 
     fmpz_mod_poly_clear( s );
     
@@ -420,7 +428,7 @@ namespace gring {
       fmpz_mod_poly_init2( mu, q_z, N );
 //      std::cout << "msg_" << i << " " << message.substr( (N/8)*i, (N/8) ) << std::endl;
       encode<N,Q,K>( mu, message.substr( (N/8)*i, (N/8)*(i+1) ) );
-      fmpz_mod_poly_add( H->data()[2*(pub->L()+1)*K + i], H->data()[2*(pub->L()+1)*K + i], mu );
+      fmpz_mod_poly_add( H->data()[2*(this->L()+1)*K + i], H->data()[2*(this->L()+1)*K + i], mu );
     }
 
     fmpz_mod_poly_clear( mu );
@@ -441,11 +449,11 @@ namespace gring {
       ABEGate<N,Q,K>* gate ) : ABEPublic<N,Q,K>{*pub}, 
       _skF{new GRingArray<N,Q,K>{*sk}}, _g{gate} {}
     ABESecret( const ABESecret& other ) : 
-      _skF{new GRingArray<N,Q,K>{other.skF()}}, _g{other.g()} {}
-    ABESecret& operator=( const ABESecret& other ) { _skF = other.skF(); 
+      _skF{new GRingArray<N,Q,K>{other.skRings()}}, _g{other.g()} {}
+    ABESecret& operator=( const ABESecret& other ) { _skF = other.skRings(); 
       _g = other.g(); }
     ~ABESecret() { delete _skF; delete _g; }
-    GRingArray<N,Q,K>* skF() const { return _skF; }
+    GRingArray<N,Q,K>* skRings() const { return _skF; }
     ABEGate<N,Q,K>* g() const { return _g; }
     std::string decrypt( ABECtxt<N,Q,K>* ctxt ) const;
   };
@@ -456,10 +464,10 @@ namespace gring {
     if ( this->g()->evalId( *ctxt->id() ) ) return "invalid id";
 
     auto Cg = this->g()->evalCt( this->ctxtRings(), ctxt );
-    auto eval = GRingArray<N,Q,K>{this->skF()->len()};
-    for ( size_t i = 0; i < this->skF()->len()/4; ++i ) {
-      ctxt->rings()->mulmodGRingSection( 0, 2, *this->skF(), 2*i, eval, 4*i );
-      Cg->mulmodGRingSection( 0, 2, *this->skF(), this->skF()->len()/2 + 2*i, eval, 4*i + 2 );
+    auto eval = GRingArray<N,Q,K>{this->skRings()->len()};
+    for ( size_t i = 0; i < this->skRings()->len()/4; ++i ) {
+      ctxt->rings()->mulmodGRingSection( 0, 2, *this->skRings(), 2*i, eval, 4*i );
+      Cg->mulmodGRingSection( 0, 2, *this->skRings(), this->skRings()->len()/2 + 2*i, eval, 4*i + 2 );
     }
 
     auto final = GRingArray<N,Q,K>{2};
