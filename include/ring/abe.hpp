@@ -358,7 +358,6 @@ namespace gring {
     H->makeUniformPoly( s );
     *H *= s;
 
-    /*
     auto eSim = GRingArray<N,Q,K>{4*K*(this->L()+1)};
     eSim.identityInit( 0, 4*K );
     eSim.ternaryInit( 4*K, 4*K*(this->L()+1) );
@@ -370,7 +369,6 @@ namespace gring {
             eSim.data()[2*K*i + j] );
       fmpz_mod_poly_add( H->data()[2*K + i], H->data()[2*K + i], eSim.data()[2*K*i] );
     }
-    */
 
     /*
     std::cout << "e0: " << std::endl;
@@ -416,7 +414,7 @@ namespace gring {
     std::cout << std::endl;
     */
 
-//    e0.plusGRingSection( 0, 2, *H, 0, *H, 0 );
+    e0.plusGRingSection( 0, 2, *H, 0, *H, 0 );
     e1.plusGRingSection( 0, 2, *H, 2*(this->L()+1), *H, 2*(this->L()+1) );
 
     fmpz_mod_poly_clear( s );
