@@ -1,23 +1,44 @@
 #include <ring/ibe.hpp>
+#include <ring/abe.hpp>
 
 #include <cstdlib>
 #include <sys/time.h>
-#include <ctime>
-#include <iostream>
-#include <random>
 
-const size_t DIM = 256;         // main security parameter
-const size_t K = 14;            // lg( Q )
-const size_t L = 6;            // Length of ABE id
-const size_t S = 4;             // Gaussian parameter
+const size_t N = 256;          // main security parameter
+const size_t K = 30;           // lg( Q )
+const size_t L = 5;            // Length of ABE id
+const long SS = 4;             // smoothing parameter
 
 std::default_random_engine generator;
 
-long
-sampleNormal( long Q, long mu ) {
-  std::normal_distribution<float> distribution{(float)mu, 8.0};
-  float sample = distribution( generator );
-  return long(sample < 0 ? sample + Q : sample) % Q;
+void
+printVector( std::vector< size_t > vec ) {
+  for ( size_t i = 0; i < vec.size(); ++i )
+    std::cout << vec[i] << " ";
+  std::cout << std::endl;
+}
+
+void
+buildCircuit() {
+  /*
+  std::vector< gring::ABEGate<N,Q,K>* > gates;
+  gates.push_back( f );
+
+  std::vector< size_t > fWire;
+  fWire.push_back( 0 );
+  fWire.push_back( 1 );
+  fWire.push_back( 2 );
+  fWire.push_back( 3 );
+  fWire.push_back( 4 );
+  
+  std::vector< std::vector< size_t > > wires;
+  wires.push_back( fWire );
+
+  gring::ABECircuit<N,Q,K> circ{ gates, wires, L };
+  std::cout << "evaluating circuit ..." << std::endl;
+  std::cout << "eval: " << circ.evalId( abeId ) << std::endl;
+
+  */
 }
 
 void 
@@ -28,45 +49,32 @@ printTimes( std::string action, const struct timeval t1, const struct
   std::cout << action << "s/sec: " << 1000000.0/millis << std::endl;
 }
 
-template< size_t N, size_t Q, size_t K >
-void 
-printPolyAtIndex( std::string name, gring::GRingArray<N,Q,K>* array, size_t 
-    index ) {
-  assert( index < K*array->len() );
+void IBEDemo() {
+  std::cout << "IBE" << std::endl;
 
-  std::cout << name << "[" << index << "]: " << std::endl;
-  fmpz_mod_poly_print( array->data()[index] );
-  std::cout << std::endl;
-}
-
-int main( void ) {
-  srand( time( NULL ) );
-
-  const size_t Q = 1 << K;
-  std::string idString = "conner";
+  const size_t Q = size_t(1) << K;
 
   struct timeval t1, t2;
-
-  std::cout << "IBE" << std::endl;
+  std::string idString = "conner";
 
   // Make MSK and PK
   gettimeofday( &t1, 0 );
-  gring::IBEMasterSecret<DIM,Q,K>* MSK = new gring::IBEMasterSecret<DIM,Q,K>{};
+  gring::IBEMasterSecret<N,Q,K>* MSK = new gring::IBEMasterSecret<N,Q,K>{};
   gettimeofday( &t2, 0 );
   printTimes( "setup", t1, t2 );
 
-  gring::IBEPublic<DIM,Q,K>* PK = MSK->publicKey();
+  gring::IBEPublic<N,Q,K>* PK = MSK->publicKey();
 
   // Encrypt to ID
   gettimeofday( &t1, 0 );
-  gring::IBECiphertext<DIM,Q,K>* ctxt = PK->encrypt( idString, "something much "
+  gring::IBECiphertext<N,Q,K>* ctxt = PK->encrypt( idString, "something much "
       "longer than 32 bytes so that maybe it gets cut off?" );
   gettimeofday( &t2, 0 );
   printTimes( "encryption", t1, t2 );
 
   // Invert Secret Key
   gettimeofday( &t1, 0 );
-  gring::IBESecret<DIM,Q,K>* userSecret = MSK->secretKeyForID( idString );
+  gring::IBESecret<N,Q,K>* userSecret = MSK->secretKeyForID( idString );
   gettimeofday( &t2, 0 );
   printTimes( "inversion", t1, t2 );
 
@@ -77,81 +85,84 @@ int main( void ) {
   printTimes( "decryption", t1, t2 );
 
   std::cout << "messagePrime: " << messagePrime << std::endl;
+}
 
-  /*
-
+void ABEDemo() {
   std::cout << "ABE" << std::endl;
 
-  gring::GRingArray<DIM,Q,K> abeA{L+2}, abeTa{L+2};
-  gring::GRingArray<DIM,Q,K> H{L+1}, e{L+1};
-  gring::GRingArray<DIM,Q,K> Bf{1}, Sf{1}, cg{1}, D{1};
+  const size_t Q = size_t(1) << K;
 
-  // Make PK and SK
-  gettimeofday( &t1, 0 );
+  std::cout << "generating samples ..." << std::endl;
+  long* samples = gring::readOrBuildSamples<N,Q,K>( "samples", SS );
 
-  trapGen( abeA, abeTa, 0 );
-  abeA.uniformInit( 1, L + 2 );
-  for ( size_t i = K; i < K*(L+2); ++i )
-    fmpz_mod_poly_set( abeTa.data()[i], abeA.data()[i] );
-
-  gettimeofday( &t2, 0 );
-  printTimes( "setup", t1, t2 );
-
-  std::cout << "making ciphertext ..." << std::endl;
-
-  for ( size_t i = 0; i < K; ++i )
-    fmpz_mod_poly_set( H.data()[i], abeA.data()[i] );
-  size_t index = 0;
-  for ( size_t i = K*(L+1); i < K*(L+2); ++i )
-    fmpz_mod_poly_set( D.data()[index++], abeA.data()[i] );
+  std::cout << "creating master secret ..." << std::endl;
+  auto abeMSK = new gring::ABEMasterSecret<N,Q,K>{L, samples};
+  std::cout << "creating public..." << std::endl;
+  auto abePK = abeMSK->publicKey();
 
 
-  gring::ring_t coeffPoly;
-  fmpz_mod_poly_init2( coeffPoly, q_z, 1 );
-#pragma omp parallel for
-  for ( size_t i = 1; i < L+1; ++i ) 
-    for ( size_t j = 0; j < K; ++j ) {
-      fmpz_mod_poly_set_coeff_ui( coeffPoly, 0, ID[i-1]*(1 << j ) );
-      fmpz_mod_poly_add( H.data()[K*i + j], abeA.data()[K*i + j], coeffPoly );
-    }
+  std::vector< size_t > weights{1}; // mul or 1 add
+//  std::vector< size_t > weights{1, 2, 3, 4, 5}; //5 add
 
-  std::cout << "making error vector ..." << std::endl;
+  auto f = new gring::ABEMulGate<N,Q,K>{weights};
+  f->print();
 
-  gring::ring_t e0, e1;
-  fmpz_mod_poly_init2( e0, q_z, DIM );
-  fmpz_mod_poly_init2( e1, q_z, DIM );
 
-  e.ternaryPerturb( e0 );
-  e.ternaryPerturb( e1 );
+  std::cout << "creating skF ..." << std::endl;
+  auto abeSK = abeMSK->keyGen( f );
 
-  e.identityInit( 0 );
-  e.ternaryInit( 1, L+1 );
+//  std::vector< size_t > ident{0};              // 1 mul or 1 add
+  std::vector< size_t > ident{2, 3, 5, 7, Q/2};  // 5 mul
+//  std::vector< size_t > ident{0, Q-1, Q-1, 0, 1};  // 5 add
 
-  std::cout << "encoding ..." << std::endl;
+  auto abeId = gring::ABEId{ident};
+  std::cout << "ABEId: ";
+  printVector( ident );
 
-  H.makeUniformPoly( s );
-  H *= s;
-  D *= s;
+  std::string message = "Lorem ipsum dolor sit amet, verterem delicata qui an, "
+                        "iudico utinam eum ne. Ut vide zril corrumpit qui, ius "
+                        "dolorem pertinax ex. Quo modus conceptam cu. Vivendo "
+                        "conclusionemque cu has. Sanctus dolorem dissentiet ut "
+                        "vim, quidam eloquentiam ut eos.  Eam everti scripta "
+                        "dissentiet ad, ignota libris accusata his at. Legere "
+                        "populo elaboraret ut sea, in nibh vivendo splendide "
+                        "pro. Pri te wisi ferri ullamcorper, novum vitae "
+                        "feugait cu his. Per ut dolor graece, at nec eripuit "
+                        "interesset. Malis velit quo ei, utinam eripuit ne "
+                        "nec.  Id justo volutpat mei, eos ei veri dolores "
+                        "invidunt, per at graece putent causae. Te sea aperiam "
+                        "eleifend sententiae. Ne laudem bonorum volutpat sit. "
+                        "Qui eu erat aperiam. Ius malis graece animal an, "
+                        "numquam scribentur eam et. Imperdiet efficiantur "
+                        "definitionem mea ei, vix enim vide evertitur in.  No "
+                        "sed movet iracundia, vel veritus lucilius honestatis "
+                        "id, enim nusquam an eos. Graeci contentiones at eos, "
+                        "id aliquid noluisse iracundia nec. Te pertinax "
+                        "elaboraret per. Duo eu alia insolens repudiandae.  "
+                        "Fabulas quaerendum sit eu, ne mentitum postulant "
+                        "consequuntur sit, illum mazim vix an. Ea prima "
+                        "accusamus vim. Diam mollis volutpat eu usu, sed ut "
+                        "illum verear prodesset, usu no tation diceret "
+                        "ancillae. Mel aeque dolore ei. Ius interesset "
+                        "complectitur an, pro vitae antiopam ut. Quem impedit "
+                        "vim eu.";
 
-  H += e * e0;
-  D += e1;
+  std::cout << "encrypting ..." << std::endl;
+  auto abeCtxt = abePK->encrypt( abePK, abeId, message, abeSK->skF() );
 
-  std::cout << "eval pk, eval sim, eval ct ..." << std::endl;
-  for ( size_t i = 1; i < L+1; ++i ) {
-    Bf.plusGRingSection(0, 1, abeA, i, Bf, 0 );
-    Sf.plusGRingSection(0, 1, e, i, Sf, 0 );
-    cg.plusGRingSection(0, 1, H, i, cg, 0 );
-  }
+  std::cout << "decrypting ..." << std::endl;
+  std::string abeMsgPrime = abeSK->decrypt( abeCtxt );
+  std::cout << "abeMsgPrime: " << abeMsgPrime << std::endl;
 
-  std::cout << "Gaussian sample:" << std::endl;
-  for ( size_t i = 0; i < 100; ++i )
-    std::cout << sampleNormal( Q, 0 ) << " ";
-  std::cout << std::endl;
+  delete [] samples;
+}
 
-  fmpz_clear( q_z );
+int main( void ) {
+  srand( time( NULL ) );
 
-  */
-
+//  IBEDemo();
+  ABEDemo();
+  
   return 0;
 }
 
